@@ -1,6 +1,8 @@
 Object.assign(process.env, require("dotenv").config()?.parsed ?? {});
 const express = require("express");
 const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
 const { generateAllScenes } = require("./b10-video");
 const { generateNarration } = require("./b11-narration");
@@ -10,6 +12,9 @@ const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// In-memory store: projectId → { trailerPath, createdAt }
+const trailerStore = new Map();
 
 // ─── Supported genres ─────────────────────────────────────────────────────────
 const SUPPORTED_GENRES = [
@@ -52,9 +57,46 @@ app.get("/", (req, res) => {
   res.json({
     status: "ok",
     app: "StoryLens API",
-    version: "1.1",
-    routes: ["GET /api/genres", "POST /api/directions", "POST /api/feedback", "POST /api/refine", "POST /api/scenes", "POST /api/generate-trailer"],
+    version: "1.2",
+    routes: ["GET /api/genres", "POST /api/directions", "POST /api/feedback", "POST /api/refine", "POST /api/scenes", "POST /api/generate-trailer", "GET /api/trailer/:projectId"],
   });
+});
+
+// Stream the assembled trailer MP4 to the browser
+app.get("/api/trailer/:projectId", (req, res) => {
+  const entry = trailerStore.get(req.params.projectId);
+  if (!entry) return res.status(404).json({ error: "Trailer not found or not yet assembled" });
+
+  const { trailerPath } = entry;
+  if (!fs.existsSync(trailerPath)) {
+    return res.status(410).json({ error: "Trailer file no longer available (tmp dir cleared)" });
+  }
+
+  const stat = fs.statSync(trailerPath);
+  const range = req.headers.range;
+
+  if (range) {
+    // Byte-range support so <video> can seek
+    const [startStr, endStr] = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(startStr, 10);
+    const end   = endStr ? parseInt(endStr, 10) : stat.size - 1;
+    const chunkSize = end - start + 1;
+
+    res.writeHead(206, {
+      "Content-Range":  `bytes ${start}-${end}/${stat.size}`,
+      "Accept-Ranges":  "bytes",
+      "Content-Length": chunkSize,
+      "Content-Type":   "video/mp4",
+    });
+    fs.createReadStream(trailerPath, { start, end }).pipe(res);
+  } else {
+    res.writeHead(200, {
+      "Content-Length": stat.size,
+      "Content-Type":   "video/mp4",
+      "Accept-Ranges":  "bytes",
+    });
+    fs.createReadStream(trailerPath).pipe(res);
+  }
 });
 
 // Return the list of supported genres for the frontend
@@ -415,6 +457,7 @@ app.post("/api/generate-trailer", async (req, res) => {
         projectId,
       });
       console.log(`✓ Trailer assembled: ${trailerPath}`);
+      trailerStore.set(projectId, { trailerPath, createdAt: Date.now() });
     } else {
       console.log("\n[5/5] Skipped assembly — no video clips (add FAL_API_KEY to generate real footage)");
     }
@@ -429,6 +472,7 @@ app.post("/api/generate-trailer", async (req, res) => {
       narration: { script: narration.script, path: narration.path },
       music: { track: score.trackName, mood: score.mood, source: score.source },
       trailerPath,
+      trailerUrl: trailerPath ? `/api/trailer/${projectId}` : null,
       status: trailerPath ? "complete" : "scenes_only",
     });
 

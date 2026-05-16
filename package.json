@@ -4,10 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test":   "node verify-auto.js",
-    "verify": "node verify-auto.js",
+    "test":       "node verify-auto.js",
+    "verify":     "node verify-auto.js",
     "verify:baseline": "node verify-auto.js --baseline",
-    "verify:verbose":  "node verify-auto.js --verbose"
+    "verify:verbose":  "node verify-auto.js --verbose",
+    "screenshot": "node screenshot.js",
+    "screenshot:studio": "node screenshot.js http://localhost:3000/studio studio"
   },
   "keywords": [],
   "author": "",
