@@ -13,8 +13,22 @@ const { v4: uuidv4 } = require("uuid");
 const app = express();
 const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// In-memory store: projectId → { trailerPath, createdAt }
-const trailerStore = new Map();
+// ─── Persistent trailer store (JSON file) ─────────────────────────────────────
+const STORE_PATH = path.join(__dirname, "trailers.json");
+
+function loadStore() {
+  try {
+    return JSON.parse(fs.readFileSync(STORE_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function saveStore(store) {
+  fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2), "utf8");
+}
+
+const trailerStore = loadStore();
 
 // ─── Supported genres ─────────────────────────────────────────────────────────
 const SUPPORTED_GENRES = [
@@ -64,7 +78,7 @@ app.get("/", (req, res) => {
 
 // Stream the assembled trailer MP4 to the browser
 app.get("/api/trailer/:projectId", (req, res) => {
-  const entry = trailerStore.get(req.params.projectId);
+  const entry = trailerStore[req.params.projectId];
   if (!entry) return res.status(404).json({ error: "Trailer not found or not yet assembled" });
 
   const { trailerPath } = entry;
@@ -457,7 +471,8 @@ app.post("/api/generate-trailer", async (req, res) => {
         projectId,
       });
       console.log(`✓ Trailer assembled: ${trailerPath}`);
-      trailerStore.set(projectId, { trailerPath, createdAt: Date.now() });
+      trailerStore[projectId] = { trailerPath, createdAt: Date.now() };
+      saveStore(trailerStore);
     } else {
       console.log("\n[5/5] Skipped assembly — no video clips (add FAL_API_KEY to generate real footage)");
     }
