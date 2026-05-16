@@ -48,7 +48,7 @@ async function generateNarration(direction, tone, projectId) {
       `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
       {
         text: script,
-        model_id: "eleven_monolingual_v1",
+        model_id: "eleven_turbo_v2_5",
         voice_settings: { stability: 0.4, similarity_boost: 0.75, style: 0.3 },
       },
       {

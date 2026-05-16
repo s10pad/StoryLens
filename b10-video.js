@@ -4,8 +4,6 @@ const axios = require("axios");
 const FAL_KEY = process.env.FAL_API_KEY;
 const MODEL   = "fal-ai/kling-video/v1.6/standard/text-to-video";
 const SUBMIT  = `https://queue.fal.run/${MODEL}`;
-const STATUS  = (id) => `https://queue.fal.run/${MODEL}/requests/${id}/status`;
-const RESULT  = (id) => `https://queue.fal.run/${MODEL}/requests/${id}`;
 const POLL_MS = 10000;
 
 function headers() {
@@ -15,10 +13,10 @@ function headers() {
 async function generateVideoScene(scene) {
   if (!FAL_KEY) throw new Error("FAL_API_KEY not set in .env");
 
-  // Submit to queue
-  let submitRes;
+  // Submit to queue — response includes status_url and response_url
+  let submitData;
   try {
-    submitRes = await axios.post(
+    const res = await axios.post(
       SUBMIT,
       {
         prompt:       scene.videoPrompt,
@@ -27,39 +25,58 @@ async function generateVideoScene(scene) {
       },
       { headers: headers() }
     );
+    submitData = res.data;
   } catch (err) {
     const status = err.response?.status;
     const detail = err.response?.data?.detail || err.message;
     throw new Error(`FAL submit ${status || "network"} error: ${detail}`);
   }
 
-  const requestId = submitRes.data.request_id;
-  if (!requestId) throw new Error(`No request_id for scene ${scene.id} — response: ${JSON.stringify(submitRes.data)}`);
+  const { request_id: requestId, status_url: statusUrl, response_url: responseUrl } = submitData;
+  if (!requestId) throw new Error(`No request_id for scene ${scene.id}: ${JSON.stringify(submitData)}`);
   console.log(`Scene ${scene.id} queued — request_id: ${requestId}`);
 
-  // Poll status
+  // Poll using the URLs returned by FAL (they omit the version/variant path)
   while (true) {
     await new Promise(r => setTimeout(r, POLL_MS));
 
-    const statusRes = await axios.get(STATUS(requestId), { headers: headers() });
-    const status = statusRes.data.status;
+    let statusData;
+    try {
+      const res = await axios.get(statusUrl, { headers: headers() });
+      statusData = res.data;
+    } catch (err) {
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail || err.message;
+      throw new Error(`FAL status poll ${status || "network"} error for scene ${scene.id}: ${detail}`);
+    }
+
+    const status = statusData.status;
     console.log(`Scene ${scene.id} — ${status}`);
 
     if (status === "COMPLETED") {
-      const resultRes = await axios.get(RESULT(requestId), { headers: headers() });
-      const out = resultRes.data;
+      let out;
+      try {
+        const res = await axios.get(responseUrl, { headers: headers() });
+        out = res.data;
+      } catch (err) {
+        const status = err.response?.status;
+        const detail = err.response?.data?.detail || err.message;
+        throw new Error(`FAL result fetch ${status || "network"} error for scene ${scene.id}: ${detail}`);
+      }
+
       const videoUrl =
-        out?.video?.url       ||
+        out?.video?.url         ||
         out?.output?.video?.url ||
         out?.output?.video_url  ||
         out?.video_url;
+
       if (!videoUrl) throw new Error(`No video URL in result for scene ${scene.id}: ${JSON.stringify(out)}`);
       console.log(`Scene ${scene.id} done: ${videoUrl}`);
       return { ...scene, videoUrl };
     }
 
     if (status === "FAILED") {
-      throw new Error(`Scene ${scene.id} failed: ${JSON.stringify(statusRes.data)}`);
+      throw new Error(`Scene ${scene.id} FAILED: ${JSON.stringify(statusData)}`);
     }
   }
 }
@@ -67,18 +84,16 @@ async function generateVideoScene(scene) {
 async function generateAllScenes(scenes) {
   console.log(`Generating ${scenes.length} scenes via FAL queue...`);
 
-  // Run scenes sequentially so a billing/auth failure aborts early rather than
-  // spawning N parallel requests that all fail the same way.
+  // Sequential to stay within FAL concurrency limits
   const results = [];
   for (const scene of scenes) {
     try {
       results.push(await generateVideoScene(scene));
     } catch (err) {
-      // Surface billing / auth errors immediately — these affect all scenes.
       const msg = err.message || "";
+      // Billing/auth errors affect all scenes — abort early
       if (msg.includes("403") || msg.includes("locked") || msg.includes("balance") || msg.includes("Unauthorized")) {
-        console.error(`FAL account error — aborting all scenes: ${msg}`);
-        // Fill remaining scenes with null and stop.
+        console.error(`FAL account error — aborting remaining scenes: ${msg}`);
         results.push({ ...scene, videoUrl: null });
         for (const remaining of scenes.slice(results.length)) {
           results.push({ ...remaining, videoUrl: null });
