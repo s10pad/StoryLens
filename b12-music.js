@@ -1,23 +1,46 @@
-require("dotenv").config();
+Object.assign(process.env, require("dotenv").config()?.parsed ?? {});
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
 const FAL_KEY = process.env.FAL_API_KEY;
-const FAL_MUSIC_ENDPOINT = "https://fal.run/fal-ai/stable-audio";
+const FAL_MUSIC_MODEL = "fal-ai/stable-audio";
+const FAL_SUBMIT = `https://queue.fal.run/${FAL_MUSIC_MODEL}`;
 const POLL_INTERVAL_MS = 5000;
 
 // ─── Genre → music style descriptor ──────────────────────────────────────────
 const GENRE_STYLE = {
-  "live action":   "cinematic orchestral score, realistic and dramatic",
-  "animation":     "playful orchestral, warm, whimsical and expressive",
-  "2d animation":  "light orchestral, hand-drawn animated feel, charming and lively",
-  "3d animation":  "sweeping CGI orchestral, adventurous and grand, Pixar-inspired",
-  "documentary":   "ambient acoustic, understated piano, honest and grounded",
-  "sci-fi":        "electronic synthesizer pads, futuristic ambient, cold and vast",
-  "horror":        "dark ambient, dissonant strings, unsettling and dread-filled",
-  "fantasy":       "epic fantasy orchestral with choir, magical and sweeping",
+  "live action":       "cinematic orchestral score, realistic and dramatic",
+  "animation":         "playful orchestral, warm, whimsical and expressive",
+  "2d animation":      "light orchestral, hand-drawn animated feel, charming and lively",
+  "3d animation":      "sweeping CGI orchestral, adventurous and grand, Pixar-inspired",
+  "anime":             "anime cinematic orchestral with electric guitar accents, soaring and emotional",
+  "stop motion":       "quirky chamber orchestral, plucked strings and woodwinds, tactile and whimsical",
+  "documentary":       "ambient acoustic, understated piano, honest and grounded",
+  "mockumentary":      "deadpan acoustic, light piano and strings, ironic and understated",
+  "sci-fi":            "electronic synthesizer pads, futuristic ambient, cold and vast",
+  "horror":            "dark ambient, dissonant strings, unsettling and dread-filled",
+  "fantasy":           "epic fantasy orchestral with choir, magical and sweeping",
+  "dark fantasy":      "brooding gothic orchestral with choir, ominous strings, cursed and mythic",
+  "action":            "high-energy orchestral hybrid, driving percussion and brass, kinetic and relentless",
+  "thriller":          "tense pulsing underscore, low strings and synth bass, escalating dread",
+  "mystery":           "investigative ambient, plucked strings and piano, curious and contemplative",
+  "crime":             "gritty urban underscore, smoky saxophone and low strings, morally weighted",
+  "drama":             "emotional piano and strings, intimate and restrained, character-driven",
+  "romance":           "tender romantic strings and piano, warm and intimate",
+  "comedy":            "bouncy playful orchestral, light brass and woodwinds, snappy and charming",
+  "dark comedy":       "off-kilter chamber music, plucked strings and piano, wry and absurd",
+  "western":           "western frontier orchestral, acoustic guitar and harmonica, sweeping and stoic",
+  "historical":        "period orchestral with strings and woodwinds, dignified and era-appropriate",
+  "superhero":         "epic heroic orchestral, soaring brass and percussion, larger-than-life",
+  "cyberpunk":         "neon synthwave with industrial percussion, retro-futuristic and rebellious",
+  "post-apocalyptic":  "sparse desolate ambient, distant piano and drone, ruined and contemplative",
+  "noir":              "moody jazz noir, smoky saxophone and upright bass, shadowy and cynical",
+  "psychological":     "unsettling minimalist underscore, dissonant piano and distorted strings, interior dread",
+  "supernatural":      "ethereal ambient with ghostly choir, uncanny and otherworldly",
+  "adventure":         "adventurous bold orchestral, sweeping strings and brass, exciting and forward-moving",
+  "musical":           "lush theatrical orchestral with vocal-style melodic lines, performative and uplifting",
 };
 
 // ─── Mood → music descriptor ──────────────────────────────────────────────────
@@ -82,47 +105,53 @@ async function generateMusicViaFal(mood, genre, duration = 47) {
   const prompt = buildMusicPrompt(mood, genre, duration);
   console.log(`Music (fal.ai): "${prompt}"`);
 
-  // Submit
-  const submitRes = await axios.post(
-    FAL_MUSIC_ENDPOINT,
-    {
-      prompt,
-      seconds_total: Math.min(duration, 47), // stable-audio max ~47s
-      steps: 100,
-    },
-    {
-      headers: {
-        Authorization: `Key ${FAL_KEY}`,
-        "Content-Type": "application/json",
+  const headers = { Authorization: `Key ${FAL_KEY}`, "Content-Type": "application/json" };
+
+  // Submit to queue
+  let submitRes;
+  try {
+    submitRes = await axios.post(
+      FAL_SUBMIT,
+      {
+        prompt,
+        seconds_total: Math.min(duration, 47), // stable-audio max ~47s
+        steps: 100,
       },
-    }
-  );
+      { headers }
+    );
+  } catch (err) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.detail || err.message;
+    throw new Error(`fal.ai music submit ${status || "network"} error: ${detail}`);
+  }
 
   const requestId = submitRes.data.request_id;
-  if (!requestId) throw new Error("fal.ai returned no request_id for music job");
+  if (!requestId) throw new Error(`fal.ai returned no request_id for music job — response: ${JSON.stringify(submitRes.data)}`);
+  // Prefer server-provided URLs (queue.fal.run hands back exact paths).
+  const statusUrl   = submitRes.data.status_url   || `${FAL_SUBMIT}/requests/${requestId}/status`;
+  const responseUrl = submitRes.data.response_url || `${FAL_SUBMIT}/requests/${requestId}`;
   console.log(`Music job submitted — request_id: ${requestId}`);
 
   // Poll
-  const statusUrl = `${FAL_MUSIC_ENDPOINT}/requests/${requestId}`;
   while (true) {
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
-    const poll = await axios.get(statusUrl, {
-      headers: { Authorization: `Key ${FAL_KEY}` },
-    });
-
-    const { status, output } = poll.data;
+    const poll = await axios.get(statusUrl, { headers: { Authorization: `Key ${FAL_KEY}` } });
+    const status = poll.data.status;
     console.log(`Music status: ${status}`);
 
     if (status === "COMPLETED") {
-      // stable-audio returns output.audio_file.url
+      const result = await axios.get(responseUrl, { headers: { Authorization: `Key ${FAL_KEY}` } });
+      const out = result.data;
       const audioUrl =
-        output?.audio_file?.url ||
-        output?.audio?.url      ||
-        output?.audio_url       ||
-        output?.url;
+        out?.audio_file?.url ||
+        out?.audio?.url      ||
+        out?.audio_url       ||
+        out?.url             ||
+        out?.output?.audio_file?.url ||
+        out?.output?.audio?.url;
 
-      if (!audioUrl) throw new Error("fal.ai music completed but no audio URL found");
+      if (!audioUrl) throw new Error(`fal.ai music completed but no audio URL found: ${JSON.stringify(out)}`);
 
       // Download to temp file
       const tmpDir  = path.join(os.tmpdir(), "storylens-music");

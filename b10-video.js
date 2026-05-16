@@ -1,4 +1,4 @@
-require("dotenv").config();
+Object.assign(process.env, require("dotenv").config()?.parsed ?? {});
 const axios = require("axios");
 
 const FAL_KEY = process.env.FAL_API_KEY;

@@ -1,4 +1,4 @@
-require("dotenv").config();
+Object.assign(process.env, require("dotenv").config()?.parsed ?? {});
 const express = require("express");
 const cors = require("cors");
 const Anthropic = require("@anthropic-ai/sdk");
@@ -76,13 +76,35 @@ Always respond with valid JSON only — no markdown, no explanation.`;
   // Genre-specific guidance injected into the prompt
   const genreKey = (genre || "").toLowerCase();
   const genreGuidance = {
-    "animation":      "This is an ANIMATION project. Directions should suit animated storytelling — expressive characters, exaggerated emotion, vibrant worlds. Avoid gritty realism.",
-    "2d animation":   "This is a 2D ANIMATION project (hand-drawn / cel-shaded style). Directions should lean into flat stylized visuals, expressive line-art aesthetics, and classic animated pacing.",
-    "3d animation":   "This is a 3D CGI ANIMATION project (Pixar / DreamWorks style). Directions should emphasize sweeping rendered worlds, character-driven emotion, and grand cinematic scope.",
-    "documentary":    "This is a DOCUMENTARY project. Directions should feel authentic and grounded — real-world stakes, observational tone, minimal artifice. Avoid over-dramatization.",
-    "sci-fi":         "This is a SCI-FI project. Directions should explore speculative futures, technology, and the unknown. Visual styles should feel vast, cold, and conceptually bold.",
-    "horror":         "This is a HORROR project. Directions should build dread, not just shock. Lean into psychological tension, atmosphere, and the unknown. Avoid gratuitous descriptions.",
-    "fantasy":        "This is a FANTASY project. Directions should embrace mythic scope, magic systems, and epic world-building. Visual styles should feel grand and otherworldly.",
+    "animation":         "This is an ANIMATION project. Directions should suit animated storytelling — expressive characters, exaggerated emotion, vibrant worlds. Avoid gritty realism.",
+    "2d animation":      "This is a 2D ANIMATION project (hand-drawn / cel-shaded style). Directions should lean into flat stylized visuals, expressive line-art aesthetics, and classic animated pacing.",
+    "3d animation":      "This is a 3D CGI ANIMATION project (Pixar / DreamWorks style). Directions should emphasize sweeping rendered worlds, character-driven emotion, and grand cinematic scope.",
+    "anime":             "This is an ANIME project. Directions should embrace Japanese animation tropes — heightened emotion, dynamic action framing, lush stylized backgrounds, expressive character archetypes.",
+    "stop motion":       "This is a STOP MOTION project. Directions should suit tactile handcrafted storytelling — quirky tangible characters, deliberate frame-by-frame motion, intimate set-piece worlds.",
+    "documentary":       "This is a DOCUMENTARY project. Directions should feel authentic and grounded — real-world stakes, observational tone, minimal artifice. Avoid over-dramatization.",
+    "mockumentary":      "This is a MOCKUMENTARY project. Directions should blend documentary realism with absurd or comedic premise — deadpan tone, talking-head framing, satirical edge.",
+    "sci-fi":            "This is a SCI-FI project. Directions should explore speculative futures, technology, and the unknown. Visual styles should feel vast, cold, and conceptually bold.",
+    "horror":            "This is a HORROR project. Directions should build dread, not just shock. Lean into psychological tension, atmosphere, and the unknown. Avoid gratuitous descriptions.",
+    "fantasy":           "This is a FANTASY project. Directions should embrace mythic scope, magic systems, and epic world-building. Visual styles should feel grand and otherworldly.",
+    "dark fantasy":      "This is a DARK FANTASY project. Directions should fuse mythic stakes with grim atmosphere — cursed magic, morally complex protagonists, decaying worlds.",
+    "action":            "This is an ACTION project. Directions should privilege kinetic momentum, high-stakes conflict, and physical spectacle. Lean into propulsive set-pieces.",
+    "thriller":          "This is a THRILLER project. Directions should build escalating tension and dread — ticking-clock stakes, paranoia, sharp twists. Pacing should feel taut.",
+    "mystery":           "This is a MYSTERY project. Directions should center clues, hidden truths, and a slow reveal. Pacing should feel investigative and methodical.",
+    "crime":             "This is a CRIME project. Directions should explore moral grey zones, criminal underworlds, and consequence. Tone should feel gritty and grounded.",
+    "drama":             "This is a DRAMA project. Directions should center character interiority, emotional stakes, and intimate human conflict. Avoid spectacle for its own sake.",
+    "romance":           "This is a ROMANCE project. Directions should center longing, intimacy, and emotional risk. Visual styles should feel tender and observational.",
+    "comedy":            "This is a COMEDY project. Directions should privilege wit, timing, and absurdity. Tone should feel playful — avoid heavy melodrama.",
+    "dark comedy":       "This is a DARK COMEDY project. Directions should fuse humor with grim or uncomfortable subject matter — deadpan delivery, ironic juxtaposition.",
+    "western":           "This is a WESTERN project. Directions should evoke open frontier, moral codes, and stoic protagonists. Visual styles should feel sun-bleached and weathered.",
+    "historical":        "This is a HISTORICAL project. Directions should ground the story in a specific era — period-accurate stakes, costumes, social fabric, political context.",
+    "superhero":         "This is a SUPERHERO project. Directions should balance mythic power with human stakes — origin tension, moral choice, larger-than-life conflict.",
+    "cyberpunk":         "This is a CYBERPUNK project. Directions should explore high-tech low-life — neon-soaked urban decay, corporate dystopia, body modification, identity politics.",
+    "post-apocalyptic":  "This is a POST-APOCALYPTIC project. Directions should explore survival, scarcity, and what's left of civilization. Visual styles should feel ruined and quiet.",
+    "noir":              "This is a NOIR project. Directions should embrace moral ambiguity, fatalism, and shadow. Tone should feel cynical and rain-slicked.",
+    "psychological":     "This is a PSYCHOLOGICAL project. Directions should center the inner life — unreliable perception, mental unraveling, suppressed memory.",
+    "supernatural":      "This is a SUPERNATURAL project. Directions should blur the line between the real and the otherworldly — hauntings, omens, unexplained forces.",
+    "adventure":         "This is an ADVENTURE project. Directions should emphasize discovery, journey, and wonder — far-flung locations, mounting obstacles, growth through quest.",
+    "musical":           "This is a MUSICAL project. Directions should integrate song and movement as storytelling — heightened emotion expressed through performance.",
   }[genreKey] || "";
 
   const userPrompt = `Story idea: "${prompt}"
@@ -242,13 +264,35 @@ async function callClaude(params, retries = 3) {
 function genreVideoGuidance(genre) {
   const key = (genre || "").toLowerCase();
   const map = {
-    "animation":     "Describe scenes as animated visuals — expressive stylized characters, vibrant exaggerated environments. Do NOT describe live-action camera work.",
-    "2d animation":  "Describe scenes as 2D hand-drawn animated visuals — flat stylized art, bold outlines, expressive character poses. Reference 2D animation aesthetics.",
-    "3d animation":  "Describe scenes as 3D CGI animated visuals — richly rendered environments, expressive character animation, Pixar-quality lighting and textures.",
-    "documentary":   "Describe scenes as real-world documentary footage — observational framing, natural lighting, handheld or static camera, authentic environments.",
-    "sci-fi":        "Describe scenes with futuristic sci-fi visuals — advanced technology, alien or space environments, cool blue/teal lighting, vast scale.",
-    "horror":        "Describe scenes with horror atmosphere — darkness, shadows, unsettling framing, tension-building imagery. Avoid explicit gore.",
-    "fantasy":       "Describe scenes as epic fantasy visuals — mythic landscapes, magical elements, grand scale, rich costume and world-building detail.",
+    "animation":         "Describe scenes as animated visuals — expressive stylized characters, vibrant exaggerated environments. Do NOT describe live-action camera work.",
+    "2d animation":      "Describe scenes as 2D hand-drawn animated visuals — flat stylized art, bold outlines, expressive character poses. Reference 2D animation aesthetics.",
+    "3d animation":      "Describe scenes as 3D CGI animated visuals — richly rendered environments, expressive character animation, Pixar-quality lighting and textures.",
+    "anime":             "Describe scenes as anime visuals — large expressive eyes, dynamic action lines, lush painted backgrounds, dramatic lighting, Japanese animation aesthetics.",
+    "stop motion":       "Describe scenes as stop-motion animation — tactile handcrafted puppets or clay figures, deliberate stuttered motion, intimate miniature set pieces.",
+    "documentary":       "Describe scenes as real-world documentary footage — observational framing, natural lighting, handheld or static camera, authentic environments.",
+    "mockumentary":      "Describe scenes as mockumentary footage — handheld camera, talking-head interviews, naturalistic awkward staging, deadpan realism.",
+    "sci-fi":            "Describe scenes with futuristic sci-fi visuals — advanced technology, alien or space environments, cool blue/teal lighting, vast scale.",
+    "horror":            "Describe scenes with horror atmosphere — darkness, shadows, unsettling framing, tension-building imagery. Avoid explicit gore.",
+    "fantasy":           "Describe scenes as epic fantasy visuals — mythic landscapes, magical elements, grand scale, rich costume and world-building detail.",
+    "dark fantasy":      "Describe scenes as dark fantasy visuals — cursed landscapes, decaying castles, twisted magical creatures, moody desaturated palette, gothic atmosphere.",
+    "action":            "Describe scenes as kinetic action footage — dynamic camera movement, physical stunts, high-impact choreography, dramatic lighting, propulsive energy.",
+    "thriller":          "Describe scenes with taut thriller atmosphere — claustrophobic framing, escalating tension, shadowy interiors, glances and reveals, paranoia.",
+    "mystery":           "Describe scenes with investigative mystery atmosphere — clue-laden compositions, dim interiors, contemplative pacing, watchful camera.",
+    "crime":             "Describe scenes as gritty crime footage — urban locations, smoky interiors, tense standoffs, grounded handheld camera, naturalistic palette.",
+    "drama":             "Describe scenes as character-driven dramatic visuals — intimate close-ups, naturalistic lighting, emotionally weighted framing, restrained camera.",
+    "romance":           "Describe scenes as intimate romantic visuals — soft golden-hour lighting, tender close-ups, warm palette, slow lingering camera.",
+    "comedy":            "Describe scenes as bright comedic visuals — wide framing for visual gags, energetic camera, vibrant palette, snappy timing.",
+    "dark comedy":       "Describe scenes that fuse comedic timing with grim subject matter — deadpan framing, ironic juxtaposition, muted palette punctuated by absurdity.",
+    "western":           "Describe scenes as western visuals — sun-bleached vistas, dusty frontier towns, golden-hour wide shots, weathered faces, sweeping landscapes.",
+    "historical":        "Describe scenes as period-accurate historical footage — era-appropriate costume, architecture, lighting (candlelight, gas lamp, etc.), grounded camera.",
+    "superhero":         "Describe scenes as superhero visuals — heightened scale, dynamic powers depicted, dramatic low-angle hero shots, vivid color, cinematic sweep.",
+    "cyberpunk":         "Describe scenes as cyberpunk visuals — neon-soaked rain-slicked streets, holographic ads, body-mod characters, cold blue and hot magenta palette.",
+    "post-apocalyptic":  "Describe scenes as post-apocalyptic visuals — ruined cities, overgrown landscapes, scarce resources, desaturated palette, lonely wide shots.",
+    "noir":              "Describe scenes as noir visuals — high-contrast black and white or desaturated color, venetian-blind shadows, rain, smoke, low-key lighting.",
+    "psychological":     "Describe scenes as psychological visuals — distorted perspective, unreliable framing, unsettling close-ups, dreamlike transitions, interior focus.",
+    "supernatural":      "Describe scenes with supernatural atmosphere — flickering light, glimpsed apparitions, uncanny stillness, slow dread-building camera.",
+    "adventure":         "Describe scenes as sweeping adventure visuals — far-flung landscapes, mounting obstacles, dynamic wide shots, sense of journey and wonder.",
+    "musical":           "Describe scenes as musical visuals — choreographed movement, theatrical lighting, performance staging, expressive blocking, sweeping camera with music cues.",
   };
   return map[key] || "Describe scenes as cinematic live-action footage — realistic environments, professional camera work.";
 }
