@@ -1,4 +1,4 @@
-require("dotenv").config();
+Object.assign(process.env, require("dotenv").config()?.parsed ?? {});
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
@@ -6,8 +6,9 @@ const os = require("os");
 
 const FAL_KEY = process.env.FAL_API_KEY;
 // Use queue.fal.run (async) — stable-audio can take 30-60s, same pattern as b10-video.js
-const FAL_MUSIC_SUBMIT  = "https://queue.fal.run/fal-ai/stable-audio";
-const POLL_INTERVAL_MS  = 5000;
+const FAL_MUSIC_MODEL = "fal-ai/stable-audio";
+const FAL_SUBMIT      = `https://queue.fal.run/${FAL_MUSIC_MODEL}`;
+const POLL_INTERVAL_MS = 5000;
 
 // ─── Genre → music style descriptor ──────────────────────────────────────────
 const GENRE_STYLE = {
@@ -15,32 +16,32 @@ const GENRE_STYLE = {
   "animation":         "playful orchestral, warm, whimsical and expressive",
   "2d animation":      "light orchestral, hand-drawn animated feel, charming and lively",
   "3d animation":      "sweeping CGI orchestral, adventurous and grand, Pixar-inspired",
-  "anime":             "anime orchestral score with piano and strings, emotionally intense and dramatic",
-  "stop motion":       "whimsical handcrafted acoustic score, charming music-box textures, warm and playful",
+  "anime":             "anime cinematic orchestral with electric guitar accents, soaring and emotional",
+  "stop motion":       "quirky chamber orchestral, plucked strings and woodwinds, tactile and whimsical",
   "documentary":       "ambient acoustic, understated piano, honest and grounded",
-  "mockumentary":      "light mockumentary acoustic, dry comedic underscore, quirky and understated",
+  "mockumentary":      "deadpan acoustic, light piano and strings, ironic and understated",
   "sci-fi":            "electronic synthesizer pads, futuristic ambient, cold and vast",
   "horror":            "dark ambient, dissonant strings, unsettling and dread-filled",
   "fantasy":           "epic fantasy orchestral with choir, magical and sweeping",
-  "dark fantasy":      "dark epic fantasy orchestral with choir, ominous and grand, gothic and foreboding",
-  "action":            "high-energy action orchestral, percussion-heavy and relentless, kinetic and explosive",
-  "thriller":          "tense thriller underscore, pulsing low strings, building pressure and paranoia",
-  "mystery":           "mysterious ambient, soft piano motifs, curious and understated tension",
-  "crime":             "gritty crime jazz underscore, dark saxophone and bass, urban and moody",
-  "drama":             "intimate emotional drama score, piano and strings, human and heartfelt",
-  "romance":           "romantic piano and strings, tender and sweeping, warm and intimate",
-  "comedy":            "bright upbeat comedic score, light brass and woodwinds, playful and energetic",
-  "dark comedy":       "deadpan quirky underscore, dry brass stabs, absurdist and darkly playful",
-  "western":           "classic western score, acoustic guitar and harmonica, sweeping and frontier-like",
-  "historical":        "period historical orchestral, authentic instruments, stately and emotionally resonant",
-  "superhero":         "epic superhero orchestral, soaring brass and percussion, heroic and triumphant",
-  "cyberpunk":         "cyberpunk electronic score, industrial synths and driving bass, dark and dystopian",
-  "post-apocalyptic":  "post-apocalyptic ambient, sparse and desolate, haunting and survival-driven",
-  "noir":              "noir jazz underscore, muted trumpet and double bass, brooding and fatalistic",
-  "psychological":     "psychological thriller score, dissonant strings and silence, unsettling and tense",
-  "supernatural":      "supernatural ambient, eerie pads and distant voices, cold and otherworldly",
-  "adventure":         "epic adventure orchestral, bold and sweeping, exciting and discovery-filled",
-  "musical":           "theatrical musical score, rich orchestral arrangements, emotionally expressive and vibrant",
+  "dark fantasy":      "brooding gothic orchestral with choir, ominous strings, cursed and mythic",
+  "action":            "high-energy orchestral hybrid, driving percussion and brass, kinetic and relentless",
+  "thriller":          "tense pulsing underscore, low strings and synth bass, escalating dread",
+  "mystery":           "investigative ambient, plucked strings and piano, curious and contemplative",
+  "crime":             "gritty urban underscore, smoky saxophone and low strings, morally weighted",
+  "drama":             "emotional piano and strings, intimate and restrained, character-driven",
+  "romance":           "tender romantic strings and piano, warm and intimate",
+  "comedy":            "bouncy playful orchestral, light brass and woodwinds, snappy and charming",
+  "dark comedy":       "off-kilter chamber music, plucked strings and piano, wry and absurd",
+  "western":           "western frontier orchestral, acoustic guitar and harmonica, sweeping and stoic",
+  "historical":        "period orchestral with strings and woodwinds, dignified and era-appropriate",
+  "superhero":         "epic heroic orchestral, soaring brass and percussion, larger-than-life",
+  "cyberpunk":         "neon synthwave with industrial percussion, retro-futuristic and rebellious",
+  "post-apocalyptic":  "sparse desolate ambient, distant piano and drone, ruined and contemplative",
+  "noir":              "moody jazz noir, smoky saxophone and upright bass, shadowy and cynical",
+  "psychological":     "unsettling minimalist underscore, dissonant piano and distorted strings, interior dread",
+  "supernatural":      "ethereal ambient with ghostly choir, uncanny and otherworldly",
+  "adventure":         "adventurous bold orchestral, sweeping strings and brass, exciting and forward-moving",
+  "musical":           "lush theatrical orchestral with vocal-style melodic lines, performative and uplifting",
 };
 
 // ─── Mood → music descriptor ──────────────────────────────────────────────────
@@ -91,7 +92,7 @@ const MUSIC_DIR = path.join(__dirname, "music");
 
 // ─── Build the AI music prompt ────────────────────────────────────────────────
 function buildMusicPrompt(mood, genre, duration) {
-  const moodKey = (mood || "epic").toLowerCase();
+  const moodKey  = (mood  || "epic").toLowerCase();
   const genreKey = (genre || "live action").toLowerCase();
   const moodDesc  = MOOD_STYLE[moodKey]  || `${mood} cinematic music`;
   const genreDesc = GENRE_STYLE[genreKey] || "cinematic orchestral score";
@@ -105,62 +106,56 @@ async function generateMusicViaFal(mood, genre, duration = 47) {
   const prompt = buildMusicPrompt(mood, genre, duration);
   console.log(`Music (fal.ai): "${prompt}"`);
 
+  const headers = { Authorization: `Key ${FAL_KEY}`, "Content-Type": "application/json" };
+
   // Submit to queue
-  let submitData;
+  let submitRes;
   try {
-    const res = await axios.post(
-      FAL_MUSIC_SUBMIT,
+    submitRes = await axios.post(
+      FAL_SUBMIT,
       {
         prompt,
         seconds_total: Math.min(duration, 47), // stable-audio max ~47s
         steps: 100,
       },
-      {
-        headers: {
-          Authorization: `Key ${FAL_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
+      { headers }
     );
-    submitData = res.data;
   } catch (err) {
     const status = err.response?.status;
     const detail = err.response?.data?.detail || err.message;
-    throw new Error(`FAL submit ${status || "network"} error: ${detail}`);
+    throw new Error(`fal.ai music submit ${status || "network"} error: ${detail}`);
   }
 
-  const { request_id: requestId, status_url: statusUrl, response_url: responseUrl } = submitData;
-  if (!requestId) throw new Error(`fal.ai returned no request_id: ${JSON.stringify(submitData)}`);
-  console.log(`Music job queued — request_id: ${requestId}`);
+  const requestId = submitRes.data.request_id;
+  if (!requestId) throw new Error(`fal.ai returned no request_id for music job — response: ${JSON.stringify(submitRes.data)}`);
 
-  // Poll status_url until COMPLETED or FAILED
+  // Prefer server-provided URLs; fall back to constructed paths
+  const statusUrl   = submitRes.data.status_url   || `${FAL_SUBMIT}/requests/${requestId}/status`;
+  const responseUrl = submitRes.data.response_url || `${FAL_SUBMIT}/requests/${requestId}`;
+  console.log(`Music job submitted — request_id: ${requestId}`);
+
+  // Poll until COMPLETED or FAILED
   while (true) {
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
-    let statusData;
-    try {
-      const res = await axios.get(statusUrl, { headers: { Authorization: `Key ${FAL_KEY}` } });
-      statusData = res.data;
-    } catch (err) {
-      throw new Error(`FAL status poll error: ${err.message}`);
-    }
-
-    const status = statusData.status;
+    const poll = await axios.get(statusUrl, { headers: { Authorization: `Key ${FAL_KEY}` } });
+    const status = poll.data.status;
     console.log(`Music status: ${status}`);
 
     if (status === "COMPLETED") {
-      // Fetch result from response_url
       const result = await axios.get(responseUrl, { headers: { Authorization: `Key ${FAL_KEY}` } });
-      const output = result.data;
+      const out = result.data;
 
-      // stable-audio returns output.audio_file.url
+      // stable-audio may nest the URL in several shapes
       const audioUrl =
-        output?.audio_file?.url ||
-        output?.audio?.url      ||
-        output?.audio_url       ||
-        output?.url;
+        out?.audio_file?.url         ||
+        out?.audio?.url              ||
+        out?.audio_url               ||
+        out?.url                     ||
+        out?.output?.audio_file?.url ||
+        out?.output?.audio?.url;
 
-      if (!audioUrl) throw new Error(`fal.ai music completed but no audio URL found. output: ${JSON.stringify(output).slice(0, 300)}`);
+      if (!audioUrl) throw new Error(`fal.ai music completed but no audio URL found: ${JSON.stringify(out)}`);
 
       // Download to temp file
       const tmpDir  = path.join(os.tmpdir(), "storylens-music");
@@ -174,7 +169,7 @@ async function generateMusicViaFal(mood, genre, duration = 47) {
     }
 
     if (status === "FAILED") {
-      throw new Error(`fal.ai music FAILED: ${JSON.stringify(statusData)}`);
+      throw new Error(`fal.ai music FAILED: ${JSON.stringify(poll.data)}`);
     }
   }
 }

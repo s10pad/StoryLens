@@ -16,6 +16,7 @@ output/
 tmp/
 *.mp4
 *.mp3.tmp
+trailers.json
 
 # Logs
 *.log

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const BACKEND = API; // used for media URLs (trailer streaming)
 
 type Direction = { title: string; arc: string; synopsis: string; hook: string; tone: string; pacing: string };
 type Style     = { name: string; mood: string; camera: string; palette: string; reference: string };
@@ -32,6 +33,7 @@ export default function Studio() {
   const [scenes,        setScenes]        = useState<Scene[]>([]);
   const [questions,     setQuestions]     = useState<Question[]>([]);
   const [trailerResult, setTrailerResult] = useState<any>(null);
+  const [videoError,    setVideoError]    = useState("");
   const [pipelineLog,   setPipelineLog]   = useState<{ text: string; type: "ok" | "warn" | "info" | "dim" }[]>([]);
 
   useEffect(() => {
@@ -101,6 +103,7 @@ export default function Studio() {
     addLog(`Narration: ${d.narration?.script ? "script ready" : "skipped (no ElevenLabs key)"}`, d.narration?.script ? "ok" : "warn");
     addLog(`Music: ${d.music?.track ?? "—"}  (${d.music?.source ?? "—"})`, "ok");
     addLog(`Trailer: ${d.trailerPath ?? "assembly skipped — no video clips"}`, d.trailerPath ? "ok" : "warn");
+    if (d.trailerUrl) addLog(`Player: ${BACKEND}${d.trailerUrl}`, "ok");
     addLog(`Status: ${d.status}`, "dim");
 
     setTrailerResult(d);
@@ -347,6 +350,30 @@ export default function Studio() {
             {/* Results */}
             {trailerResult && !loading && (
               <div style={{ marginTop: 28 }}>
+
+                {/* ── In-browser video player ── */}
+                {trailerResult.trailerUrl && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 9, color: "#e8c547", letterSpacing: "0.3em", marginBottom: 10 }}>YOUR TRAILER</div>
+                    <div style={{ background: "#000", borderRadius: 10, overflow: "hidden", border: "1px solid #1a1a28", position: "relative" }}>
+                      <video
+                        controls
+                        autoPlay={false}
+                        style={{ width: "100%", display: "block", maxHeight: 480 }}
+                        onError={() => setVideoError("Could not load trailer — the file may still be processing or the server restarted.")}
+                      >
+                        <source src={`${BACKEND}${trailerResult.trailerUrl}`} type="video/mp4" />
+                        Your browser does not support HTML5 video.
+                      </video>
+                      {videoError && (
+                        <div style={{ padding: "12px 16px", fontSize: 12, color: "#f39c12", background: "rgba(243,156,18,0.08)" }}>
+                          ⚠ {videoError}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
 
                   <ResultBlock title="🎙 Narration">
@@ -374,7 +401,14 @@ export default function Studio() {
                     {trailerResult.trailerPath
                       ? <>
                           <div style={{ color: "#2ecc71", fontWeight: 700, fontSize: 13, marginBottom: 8 }}>✓ Trailer assembled</div>
-                          <div style={{ fontSize: 11, color: "#333", wordBreak: "break-all" }}>{trailerResult.trailerPath}</div>
+                          <div style={{ fontSize: 11, color: "#333", wordBreak: "break-all", marginBottom: 8 }}>{trailerResult.trailerPath}</div>
+                          <a
+                            href={`${BACKEND}${trailerResult.trailerUrl}`}
+                            download="trailer.mp4"
+                            style={{ fontSize: 11, color: "#e8c547", textDecoration: "none", border: "1px solid #e8c54733", borderRadius: 4, padding: "4px 10px" }}
+                          >
+                            ↓ Download trailer.mp4
+                          </a>
                         </>
                       : <p style={css.dimNote}>Assembly requires video clips. Add FAL_API_KEY to generate footage — the rest of the pipeline (narration, music, scenes) is complete.</p>
                     }

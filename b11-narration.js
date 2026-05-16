@@ -1,4 +1,4 @@
-require("dotenv").config();
+Object.assign(process.env, require("dotenv").config()?.parsed ?? {});
 const Anthropic = require("@anthropic-ai/sdk");
 const axios = require("axios");
 const fs = require("fs");
