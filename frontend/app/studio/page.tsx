@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
-const API = "http://localhost:3001";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 type Direction = { title: string; arc: string; synopsis: string; hook: string; tone: string; pacing: string };
 type Style     = { name: string; mood: string; camera: string; palette: string; reference: string };
