@@ -108,11 +108,14 @@ async function assembleTrailer({ sceneVideoUrls = [], narrationPath, scorePath, 
       outputPath,
     ];
   } else {
-    // Video only with fade
+    // Veo native audio: keep audio stream, fade video + audio out together
     args = [
       "-i", rawConcatPath,
-      "-vf", `fade=t=out:st=${fadeStart}:d=2`,
-      "-c:v", "libx264", "-an",
+      "-filter_complex",
+      `[0:v]fade=t=out:st=${fadeStart}:d=2[vf];` +
+      `[0:a]afade=t=out:st=${fadeStart}:d=2[af]`,
+      "-map", "[vf]", "-map", "[af]",
+      "-c:v", "libx264", "-c:a", "aac",
       outputPath,
     ];
   }

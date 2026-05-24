@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
-const Anthropic = require("@anthropic-ai/sdk");
+const { GoogleGenAI } = require("@google/genai");
 const { generateAllScenes } = require("./b10-video");
 const { generateNarration } = require("./b11-narration");
 const { generateScore } = require("./b12-music");
@@ -11,7 +11,8 @@ const { assembleTrailer } = require("./b13-assembler");
 const { v4: uuidv4 } = require("uuid");
 
 const app = express();
-const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const GEMINI_MODEL = "gemini-3.5-flash";
 
 // ─── Persistent trailer store (JSON file) ─────────────────────────────────────
 const STORE_PATH = path.join(__dirname, "trailers.json");
@@ -71,7 +72,7 @@ app.get("/", (req, res) => {
   res.json({
     status: "ok",
     app: "StoryLens API",
-    version: "1.2",
+    version: "2.0",
     routes: ["GET /api/genres", "POST /api/directions", "POST /api/feedback", "POST /api/refine", "POST /api/scenes", "POST /api/generate-trailer", "GET /api/trailer/:projectId"],
   });
 });
@@ -195,16 +196,15 @@ Generate exactly this JSON structure:
 Return exactly 3 directions and 5 styles. JSON only.`;
 
   try {
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-5",
-      max_tokens: 2048,
-      messages: [{ role: "user", content: userPrompt }],
-      system: systemPrompt,
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: userPrompt,
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+      },
     });
-
-    const raw = message.content[0].text.trim();
-    const text = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    const data = JSON.parse(text);
+    const data = JSON.parse(response.text);
     res.json(data);
   } catch (err) {
     console.error("Error:", err.message);
@@ -241,15 +241,12 @@ Return only this JSON structure:
 Return exactly 5 questions. JSON only.`;
 
   try {
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-5",
-      max_tokens: 2048,
-      messages: [{ role: "user", content: userPrompt }],
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: userPrompt,
+      config: { responseMimeType: "application/json" },
     });
-
-    const raw = message.content[0].text.trim();
-    const text = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    const data = JSON.parse(text);
+    const data = JSON.parse(response.text);
     res.json(data);
   } catch (err) {
     console.error("Error:", err.message);
@@ -282,15 +279,12 @@ Rewrite the scene incorporating the creator's answer. Return only this JSON stru
 JSON only.`;
 
   try {
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-5",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: userPrompt }],
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: userPrompt,
+      config: { responseMimeType: "application/json" },
     });
-
-    const raw = message.content[0].text.trim();
-    const text = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    const data = JSON.parse(text);
+    const data = JSON.parse(response.text);
     res.json(data);
   } catch (err) {
     console.error("Error:", err.message);
@@ -298,22 +292,11 @@ JSON only.`;
   }
 });
 
-// Shared helper — retries once on 529 overload
-async function callClaude(params, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await client.messages.create(params);
-    } catch (err) {
-      const is529 = err.message && err.message.includes("529");
-      if (is529 && i < retries - 1) {
-        const delay = 15000 * (i + 1); // 15s, 30s
-        console.warn(`  Claude overloaded — retrying in ${delay / 1000}s... (attempt ${i + 2}/${retries})`);
-        await new Promise(r => setTimeout(r, delay));
-      } else {
-        throw err;
-      }
-    }
-  }
+async function callGemini(contents, systemInstruction) {
+  const config = { responseMimeType: "application/json" };
+  if (systemInstruction) config.systemInstruction = systemInstruction;
+  const response = await ai.models.generateContent({ model: GEMINI_MODEL, contents, config });
+  return response.text;
 }
 
 // Genre-specific video prompt guidance for scene generation
@@ -388,14 +371,7 @@ Return only this JSON:
 
 Return exactly 6 scenes totaling ~50 seconds. JSON only.`;
 
-  const message = await callClaude({
-    model: "claude-sonnet-4-5",
-    max_tokens: 2048,
-    messages: [{ role: "user", content: userPrompt }],
-  });
-
-  const raw = message.content[0].text.trim();
-  const text = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  const text = await callGemini(userPrompt);
   return JSON.parse(text);
 }
 
@@ -432,12 +408,15 @@ app.post("/api/generate-trailer", async (req, res) => {
     scenes.forEach(s => console.log(`  ${s.id} [${s.time}] ${s.label}`));
 
     // Step 2 — Video clips (B10)
-    console.log("\n[2/5] Generating video clips via Kling/Fal.ai...");
+    console.log("\n[2/5] Generating video clips via Veo 3.1 (native audio)...");
+    const geminiKey = process.env.GEMINI_API_KEY || "";
+    const veoReady = geminiKey.length > 10 && !geminiKey.includes("your-");
     let scenesWithVideo;
-    if (!process.env.FAL_API_KEY || process.env.FAL_API_KEY.includes("your-")) {
-      console.warn("  FAL_API_KEY not set — skipping real video, using mock URLs");
+    if (!veoReady) {
+      console.warn("  GEMINI_API_KEY missing or placeholder — skipping video generation");
       scenesWithVideo = scenes.map(s => ({ ...s, videoUrl: null }));
     } else {
+      console.log(`  Gemini key present — submitting ${scenes.length} scenes to Veo 3.1`);
       try {
         scenesWithVideo = await generateAllScenes(scenes);
       } catch (videoErr) {
@@ -474,7 +453,7 @@ app.post("/api/generate-trailer", async (req, res) => {
       trailerStore[projectId] = { trailerPath, createdAt: Date.now() };
       saveStore(trailerStore);
     } else {
-      console.log("\n[5/5] Skipped assembly — no video clips (add FAL_API_KEY to generate real footage)");
+      console.log("\n[5/5] Skipped assembly — no video clips (check GEMINI_API_KEY and Veo 3.1 access)");
     }
 
     console.log(`\n${"=".repeat(60)}`);
