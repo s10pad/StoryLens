@@ -30,6 +30,12 @@ test-dashboard.html
 setup-schedule.ps1
 screenshots/
 
+# Firebase service account credentials
+*firebase-adminsdk*.json
+
+# Claude worktrees
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
