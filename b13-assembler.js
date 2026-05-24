@@ -107,8 +107,22 @@ async function assembleTrailer({ sceneVideoUrls = [], narrationPath, scorePath, 
       "-c:v", "libx264", "-c:a", "aac", "-shortest",
       outputPath,
     ];
+  } else if (hasNarration) {
+    // Narration voice over Veo native audio (ducked to 25%)
+    args = [
+      "-i", rawConcatPath,
+      "-i", narrationPath,
+      "-filter_complex",
+      `[0:a]volume=0.25[vbg];` +
+      `[1:a][vbg]amix=inputs=2:duration=first[mixed];` +
+      `[0:v]fade=t=out:st=${fadeStart}:d=2[vf];` +
+      `[mixed]afade=t=out:st=${fadeStart}:d=2[af]`,
+      "-map", "[vf]", "-map", "[af]",
+      "-c:v", "libx264", "-c:a", "aac", "-shortest",
+      outputPath,
+    ];
   } else {
-    // Veo native audio: keep audio stream, fade video + audio out together
+    // Veo native audio only — fade video + audio out together
     args = [
       "-i", rawConcatPath,
       "-filter_complex",

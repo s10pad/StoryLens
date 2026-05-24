@@ -385,14 +385,14 @@ export default function Studio() {
                   <ResultBlock title="🎵 Music">
                     <Row label="Track" value={trailerResult.music?.track ?? "—"} />
                     <Row label="Mood"  value={trailerResult.music?.mood  ?? "—"} />
-                    <Row label="Source" value={trailerResult.music?.source ?? "—"} accent={trailerResult.music?.source === "fal.ai"} />
+                    <Row label="Source" value={trailerResult.music?.source ?? "—"} accent={trailerResult.music?.source === "veo-native"} />
                   </ResultBlock>
 
                   <ResultBlock title="🎞 Video Clips">
                     {trailerResult.scenes?.map((sc: Scene, i: number) => (
                       <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: "1px solid #0f0f18" }}>
                         <span style={{ color: "#666" }}>{sc.label}</span>
-                        <span style={{ color: sc.videoUrl ? "#2ecc71" : "#2a2a38" }}>{sc.videoUrl ? "✓ ready" : "pending FAL_API_KEY"}</span>
+                        <span style={{ color: sc.videoUrl ? "#2ecc71" : "#2a2a38" }}>{sc.videoUrl ? "✓ ready" : "pending Veo generation"}</span>
                       </div>
                     ))}
                   </ResultBlock>
@@ -410,7 +410,7 @@ export default function Studio() {
                             ↓ Download trailer.mp4
                           </a>
                         </>
-                      : <p style={css.dimNote}>Assembly requires video clips. Add FAL_API_KEY to generate footage — the rest of the pipeline (narration, music, scenes) is complete.</p>
+                      : <p style={css.dimNote}>Assembly requires video clips. Check GEMINI_API_KEY and Veo 3.1 billing access — narration and scenes are complete.</p>
                     }
                     <div style={{ fontSize: 10, color: "#2a2a38", marginTop: 10 }}>status: {trailerResult.status}</div>
                   </ResultBlock>
