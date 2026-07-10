@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import en from './locales/en.json';
 import fr from './locales/fr.json';
+import pcm from './locales/pcm.json';
 
 const STORE_LANGUAGE_KEY = 'settings.lang';
 
@@ -37,6 +38,7 @@ const languageDetectorPlugin = {
 const resources = {
   en: { translation: en },
   fr: { translation: fr },
+  pcm: { translation: pcm },
 };
 
 i18n

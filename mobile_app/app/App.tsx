@@ -23,7 +23,15 @@ export default function App() {
   const API = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3001";
 
   const toggleLanguage = () => {
-    i18n.changeLanguage(i18n.language === 'en' ? 'fr' : 'en');
+    if (i18n.language === 'en') i18n.changeLanguage('fr');
+    else if (i18n.language === 'fr') i18n.changeLanguage('pcm');
+    else i18n.changeLanguage('en');
+  };
+
+  const getLanguageFlag = () => {
+    if (i18n.language === 'fr') return '🇫🇷';
+    if (i18n.language === 'pcm') return '🇨🇲';
+    return '🇬🇧';
   };
 
   const handleGenerate = async () => {
@@ -77,7 +85,7 @@ export default function App() {
           <Text style={styles.badge}>MOBILE</Text>
         </View>
         <TouchableOpacity style={styles.langToggle} onPress={toggleLanguage}>
-          <Text style={styles.langToggleText}>{i18n.language.toUpperCase()}</Text>
+          <Text style={styles.langToggleText}>{getLanguageFlag()}</Text>
         </TouchableOpacity>
       </View>
 
