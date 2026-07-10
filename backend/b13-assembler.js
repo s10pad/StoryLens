@@ -44,14 +44,38 @@ async function assembleTrailer({ sceneVideoUrls = [], narrationPath, scorePath, 
   const clipPaths = [];
   for (let i = 0; i < sceneVideoUrls.length; i++) {
     const url = sceneVideoUrls[i];
+    const isImage = url.endsWith('.png') || url.endsWith('.jpg') || url.endsWith('.jpeg');
+    const ext = isImage ? path.extname(url) : '.mp4';
+    const rawPath = path.join(workDir, `raw_${i + 1}${ext}`);
     const clipPath = path.join(workDir, `clip_${i + 1}.mp4`);
+    
     if (url.startsWith("http")) {
       console.log(`Downloading clip ${i + 1}/${sceneVideoUrls.length}...`);
-      await downloadFile(url, clipPath);
+      await downloadFile(url, rawPath);
     } else {
-      fs.copyFileSync(url, clipPath);
+      fs.copyFileSync(url, rawPath);
     }
-    clipPaths.push(clipPath);
+
+    if (isImage) {
+      console.log(`Applying Ken Burns effect to image ${i + 1}...`);
+      // 6 seconds duration, slow zoom, add silent audio track so it matches video clips
+      await runFFmpeg([
+        "-loop", "1",
+        "-i", rawPath,
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-vf", "scale=1920:1080,zoompan=z='min(zoom+0.001,1.15)':d=180:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080",
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-t", "6",
+        "-pix_fmt", "yuv420p",
+        "-shortest",
+        clipPath
+      ]);
+      clipPaths.push(clipPath);
+    } else {
+      fs.renameSync(rawPath, clipPath);
+      clipPaths.push(clipPath);
+    }
   }
 
   // Step 2 — concatenate clips

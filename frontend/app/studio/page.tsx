@@ -18,6 +18,7 @@ export default function Studio() {
   const [tone,       setTone]       = useState("Tense");
   const [characters, setCharacters] = useState("");
   const [genres,     setGenres]     = useState<string[]>([]);
+  const [format,     setFormat]     = useState<"video" | "graphic">("video");
 
   // Flow
   const [step,    setStep]    = useState<Step>("brief");
@@ -39,7 +40,10 @@ export default function Studio() {
   useEffect(() => {
     fetch(`${API}/api/genres`)
       .then(r => r.json())
-      .then(d => { if (d.genres?.length) setGenres(d.genres); })
+      .then(d => { 
+        if (d.genres?.length) setGenres(d.genres); 
+        else throw new Error("No genres");
+      })
       .catch(() => setGenres(["Live Action","Animation","2D Animation","3D Animation","Anime","Stop Motion","Documentary","Mockumentary","Sci-Fi","Horror","Fantasy","Dark Fantasy","Action","Thriller","Mystery","Crime","Drama","Romance","Comedy","Dark Comedy","Western","Historical","Superhero","Cyberpunk","Post-Apocalyptic","Noir","Psychological","Supernatural","Adventure","Musical"]));
   }, []);
 
@@ -77,7 +81,7 @@ export default function Studio() {
   });
 
   const getScenes = () => run("Writing scene scripts…", async () => {
-    const d = await post("/api/scenes", { prompt, direction: pickedDir, style: pickedStyle, characters, genre });
+    const d = await post("/api/scenes", { prompt, direction: pickedDir, style: pickedStyle, characters, genre, format });
     setScenes(d.scenes ?? []);
     setQuestions([]);
     setStep("scenes");
@@ -95,7 +99,7 @@ export default function Studio() {
     addLog(`Genre: ${genre}  ·  Tone: ${tone || pickedDir?.tone || "—"}  ·  Direction: "${pickedDir?.title}"`, "dim");
 
     const t0 = Date.now();
-    const d  = await post("/api/generate-trailer", { prompt, genre, tone, characters, direction: pickedDir, style: pickedStyle });
+    const d  = await post("/api/generate-trailer", { prompt, genre, tone, characters, direction: pickedDir, style: pickedStyle, format });
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
     addLog(`Pipeline complete — ${elapsed}s`, "ok");
@@ -190,7 +194,13 @@ export default function Studio() {
               />
             </Field>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+              <Field label="Format">
+                <select style={css.input} value={format} onChange={e => setFormat(e.target.value as "video" | "graphic")}>
+                  <option value="video">Video Trailer</option>
+                  <option value="graphic">Graphic Trailer</option>
+                </select>
+              </Field>
               <Field label="Genre">
                 <select style={css.input} value={genre} onChange={e => setGenre(e.target.value)}>
                   {genres.map(g => <option key={g}>{g}</option>)}
@@ -392,7 +402,7 @@ export default function Studio() {
                     {trailerResult.scenes?.map((sc: Scene, i: number) => (
                       <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: "1px solid #0f0f18" }}>
                         <span style={{ color: "#666" }}>{sc.label}</span>
-                        <span style={{ color: sc.videoUrl ? "#2ecc71" : "#2a2a38" }}>{sc.videoUrl ? "✓ ready" : "pending Veo generation"}</span>
+                        <span style={{ color: sc.videoUrl || (sc as any).imageUrl ? "#2ecc71" : "#2a2a38" }}>{sc.videoUrl || (sc as any).imageUrl ? "✓ ready" : "pending generation"}</span>
                       </div>
                     ))}
                   </ResultBlock>

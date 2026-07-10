@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { GoogleGenAI } = require("@google/genai");
 const { generateAllScenes } = require("./b10-video");
+const { generateAllImages } = require("./b14-image");
 const { generateNarration } = require("./b11-narration");
 const { generateScore } = require("./b12-music");
 const { assembleTrailer } = require("./b13-assembler");
@@ -295,8 +296,21 @@ JSON only.`;
 async function callGemini(contents, systemInstruction) {
   const config = { responseMimeType: "application/json" };
   if (systemInstruction) config.systemInstruction = systemInstruction;
-  const response = await ai.models.generateContent({ model: GEMINI_MODEL, contents, config });
-  return response.text;
+  let attempts = 0;
+  while (attempts < 3) {
+    try {
+      const response = await ai.models.generateContent({ model: GEMINI_MODEL, contents, config });
+      return response.text;
+    } catch (e) {
+      if (e.message && (e.message.includes("503") || e.message.includes("UNAVAILABLE")) && attempts < 2) {
+        attempts++;
+        console.log(`Gemini 503 error, retrying in ${attempts * 2}s...`);
+        await new Promise(r => setTimeout(r, attempts * 2000));
+      } else {
+        throw e;
+      }
+    }
+  }
 }
 
 // Genre-specific video prompt guidance for scene generation
@@ -337,9 +351,10 @@ function genreVideoGuidance(genre) {
 }
 
 // Shared scene generator — called by both /api/scenes and /api/generate-trailer
-async function generateScenes({ prompt = "", direction = {}, style = {}, characters = "", genre = "" }) {
+async function generateScenes({ prompt = "", direction = {}, style = {}, characters = "", genre = "", format = "video" }) {
   const activeGenre = genre || direction?.genre || "Live Action";
   const videoGuide  = genreVideoGuidance(activeGenre);
+  const isGraphic = format === "graphic";
 
   const userPrompt = `You are a cinematographer and screenwriter breaking a story into individual trailer scenes.
 
@@ -347,13 +362,14 @@ Story prompt: "${prompt}"
 Story direction: ${JSON.stringify(direction)}
 Visual style: ${JSON.stringify(style)}
 Genre: ${activeGenre}
+Format: ${isGraphic ? "Graphic Trailer (Static Illustrations/Comic panels)" : "Video Trailer"}
 ${characters ? `Characters: ${characters}` : ""}
 
-VIDEO PROMPT STYLE GUIDE: ${videoGuide}
+${isGraphic ? "IMAGE PROMPT STYLE GUIDE: Provide detailed image prompts optimized for a static image generation AI (like Midjourney or Imagen). Emphasize art style, composition, lighting, and illustration medium." : "VIDEO PROMPT STYLE GUIDE: " + videoGuide}
 
 Break this into exactly 6 trailer scenes, each 5–8 seconds long.
-Each scene needs a detailed video generation prompt — specific enough for an AI video model.
-Include: character appearance, camera movement, lighting, action, atmosphere, and genre-appropriate visual style.
+Each scene needs a detailed ${isGraphic ? "image generation prompt" : "video generation prompt"} — specific enough for an AI model.
+Include: character appearance, ${isGraphic ? "composition" : "camera movement"}, lighting, action, atmosphere, and genre-appropriate visual style.
 
 Return only this JSON:
 {
@@ -362,7 +378,7 @@ Return only this JSON:
       "id": "s1",
       "time": "0:00–0:06",
       "label": "short scene label",
-      "videoPrompt": "detailed description for AI video generation matching the genre style — camera angle, subject, action, lighting, color, mood. At least 40 words.",
+      "${isGraphic ? "imagePrompt" : "videoPrompt"}": "detailed description for AI ${isGraphic ? "image" : "video"} generation matching the genre style. At least 40 words.",
       "mood": "single emotional word",
       "duration": 6
     }
@@ -388,7 +404,7 @@ app.post("/api/scenes", async (req, res) => {
 
 // Day 12 — Full pipeline: brief → trailer.mp4
 app.post("/api/generate-trailer", async (req, res) => {
-  const { prompt, genre, tone, characters, direction, style } = req.body;
+  const { prompt, genre, tone, characters, direction, style, format = "video" } = req.body;
 
   if (!prompt && !direction) {
     return res.status(400).json({ error: "prompt or direction is required" });
@@ -396,36 +412,41 @@ app.post("/api/generate-trailer", async (req, res) => {
 
   const projectId = uuidv4();
   console.log(`\n${"=".repeat(60)}`);
-  console.log(`TRAILER GENERATION STARTED — project: ${projectId}`);
+  console.log(`TRAILER GENERATION STARTED — project: ${projectId} (${format.toUpperCase()})`);
   console.log(`Prompt: "${prompt}"`);
   console.log("=".repeat(60));
 
   try {
     // Step 1 — Scene scripts (B9)
     console.log("\n[1/5] Generating scene scripts...");
-    const { scenes } = await generateScenes({ prompt, direction, style, characters, genre });
+    const { scenes } = await generateScenes({ prompt, direction, style, characters, genre, format });
     console.log(`✓ ${scenes.length} scenes generated`);
     scenes.forEach(s => console.log(`  ${s.id} [${s.time}] ${s.label}`));
 
-    // Step 2 — Video clips (B10)
-    console.log("\n[2/5] Generating video clips via Veo 3.1 (native audio)...");
+    // Step 2 — Video/Image clips (B10/B14)
+    console.log(`\n[2/5] Generating visuals (${format})...`);
     const geminiKey = process.env.GEMINI_API_KEY || "";
-    const veoReady = geminiKey.length > 10 && !geminiKey.includes("your-");
-    let scenesWithVideo;
-    if (!veoReady) {
-      console.warn("  GEMINI_API_KEY missing or placeholder — skipping video generation");
-      scenesWithVideo = scenes.map(s => ({ ...s, videoUrl: null }));
+    const isReady = geminiKey.length > 10 && !geminiKey.includes("your-");
+    let scenesWithVisuals;
+    if (!isReady) {
+      console.warn("  GEMINI_API_KEY missing or placeholder — skipping visual generation");
+      scenesWithVisuals = scenes.map(s => ({ ...s, videoUrl: null, imageUrl: null }));
     } else {
-      console.log(`  Gemini key present — submitting ${scenes.length} scenes to Veo 3.1`);
       try {
-        scenesWithVideo = await generateAllScenes(scenes);
-      } catch (videoErr) {
-        console.warn("  Video generation failed:", videoErr.message, "— continuing without clips");
-        scenesWithVideo = scenes.map(s => ({ ...s, videoUrl: null }));
+        if (format === "graphic") {
+          console.log(`  Submitting ${scenes.length} scenes to Imagen 3`);
+          scenesWithVisuals = await generateAllImages(scenes);
+        } else {
+          console.log(`  Submitting ${scenes.length} scenes to Veo 3.1`);
+          scenesWithVisuals = await generateAllScenes(scenes);
+        }
+      } catch (visualErr) {
+        console.warn("  Visual generation failed:", visualErr.message, "— continuing without clips");
+        scenesWithVisuals = scenes.map(s => ({ ...s, videoUrl: null, imageUrl: null }));
       }
     }
-    const videoUrls = scenesWithVideo.map(s => s.videoUrl).filter(Boolean);
-    console.log(`✓ ${videoUrls.length}/${scenes.length} video clips ready`);
+    const visualUrls = scenesWithVisuals.map(s => s.videoUrl || s.imageUrl).filter(Boolean);
+    console.log(`✓ ${visualUrls.length}/${scenes.length} visual clips ready`);
 
     // Step 3 — Narration (B11)
     console.log("\n[3/5] Generating narration...");
@@ -441,10 +462,10 @@ app.post("/api/generate-trailer", async (req, res) => {
 
     // Step 5 — Assemble (B13) — only if we have video clips
     let trailerPath = null;
-    if (videoUrls.length > 0) {
+    if (visualUrls.length > 0) {
       console.log("\n[5/5] Assembling trailer...");
       trailerPath = await assembleTrailer({
-        sceneVideoUrls: videoUrls,
+        sceneVideoUrls: visualUrls,
         narrationPath: narration.path,
         scorePath: score.path,
         projectId,
@@ -462,7 +483,7 @@ app.post("/api/generate-trailer", async (req, res) => {
 
     res.json({
       projectId,
-      scenes: scenesWithVideo,
+      scenes: scenesWithVisuals,
       narration: { script: narration.script, path: narration.path },
       music: { track: score.trackName, mood: score.mood, source: score.source },
       trailerPath,
